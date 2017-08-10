@@ -1,0 +1,547 @@
+<!--HTML for converting SVG to JSCAD-->
+<!--
+
+See README.txt!!
+
+----ABOUT----
+
+Author: Beau Trifiro
+
+License: MIT License
+
+Description: HTML & JavaScript for converting SVG paths to OpenJsCAD paths.
+SVG paths were created from imports of DXFs in Inkscape.
+DXFs were created in DraftSight Free.
+Currently only designed for lines and cubic bezier curves.
+
+Version: 0.0.1
+-------------
+
+-->
+
+<!DOCTYPE html>
+<meta charset="utf-8"/>
+<html>
+<head>
+<style>
+body {
+	font-family: sans-serif;
+}
+
+#instructions {
+	background-color: rgb(255,255,150);
+	font-size: 14px;
+	padding: 2px 15px;
+	}
+
+#demo {
+	background-color: rgb(185,255,255);
+}
+
+</style>
+</head>
+<body>
+<div id="instructions">
+<h1 style="font-size: 20px;">Instructions (Please read!):</h2>
+<ol>
+<li>Design your profile using <a href="https://www.3ds.com/products-services/draftsight-cad-software/free-download/" target="_blank">DraftSight Free</a>. (Video tutorial for drawing a skateboard: <a href="https://youtu.be/rA4Z5uRasyc" target="_blank">https://youtu.be/rA4Z5uRasyc</a>.)</li>
+	<ol type="a"><li>Use only straight lines and splines - other paths are not yet supported.</li>
+	<li>Make sure there are no stray lines or points, and that your profile is closed.</li>
+	</ol>
+<li>Export your DraftSight design as a DXF.</li>
+<li>Import your DXF into <a href="https://inkscape.org/en/download/" target="_blank">Inkscape</a>.</li>
+<li>While your profile is selected in Inkscape, click Path -> Combine.</li>
+<li>Click Edit -> Preferences -> Input/Output -> SVG output and set "Path data" to "Absolute". (Relative coordinates are not yet supported.)</li>
+<li>Save your file (Inkscape SVG).</li>
+<li>Using the button below, load your SVG file.</li>
+<li>Click convert.</li>
+<li>Copy and paste the text into your <a href="http://www.openjscad.org" target="_blank">OpenJsCAD</a> script.</li>
+</ol>
+</div>
+<p id="demo">
+<form>
+ Your SVG file <input type = "file" id = "fileName">  
+</form><button onclick="convertSVG(event)">convert!</button> 
+</p>
+
+<div id="fileDisplayArea"></div>
+
+
+<script>
+
+//when the "convert" button is clicked...
+function convertSVG(event) {
+
+	var fileInput = document.getElementById("fileName");	//get the file name to convert
+	var fileDisplayArea = document.getElementById("fileDisplayArea");
+	
+	var file = fileInput.files[0]; //create a file object from the input file
+	var fileType = /svg.*/;
+	
+	if (file.type.match(fileType)) {
+		var reader = new FileReader;
+		reader.onload = function(e) {
+			fileDisplayArea.innerText = reader.result;	//print the file to the webpage
+			
+			var parser = new DOMParser();
+	
+			var xmlDoc = parser.parseFromString(fileDisplayArea.innerText, "text/xml");
+
+			myFunction(xmlDoc);
+		}
+		reader.readAsText(file);
+				
+	}
+	
+	else {
+		fileDisplayArea.innerText = "Not an SVG!";
+	}
+	
+		
+	function myFunction(xml) {
+	
+		var xmlDoc = xml;
+		
+		var txt, svgFile, k;
+		
+		svgFile = xmlDoc.documentElement;
+		
+		var pathArray = [];
+		findLowestg(svgFile,pathArray);
+				
+		var commandArray = []; //array to keep track of what operation to perform
+		
+		var currentCoordinates = [];
+		
+		var newArray = [];
+		
+		var startCoords; //for V and H
+		var startCoordsArray = [];
+		var endCoords;
+		var endCoordsArray = [];
+		
+		var a = 0;
+		
+		var firstCoords = true;
+		
+		for (k = 0; k < pathArray.length; k++) {
+			pathArray[k] = pathArray[k].split(" ");
+			//console.log("pathArray[k] is " + pathArray[k][0]);
+			//split all parts of the path string between spaces.
+			for (l = 0; l < pathArray[k].length; l++) {
+				
+				var currentArray = [];
+				
+				if (pathArray[k][l] == "M" && pathArray[k][l+2] == "C") {
+					//If this is the beginning of a bezier instruction
+					//console.log("found bezier");				
+					currentArray.push("bezier");
+					currentArray.push(pathArray[k][l+1]); //start point
+					currentArray.push(pathArray[k][l+3]); //first bezier defs
+					currentArray.push(pathArray[k][l+4]); //second bezier defs
+					currentArray.push(pathArray[k][l+5]); //bezier end point
+					
+					newArray.push(currentArray);
+					
+					commandArray.push("C");
+					a++;
+					l = l+5;
+				}
+				
+				//---- add in V and H
+				else if (pathArray[k][l] == "M" && ((pathArray[k][l+2] == "V") || (pathArray[k][l+2] == "H"))) {
+					//this is the beginning of a VERTICAL line command [M x1,y1 V y2]
+					
+					endCoordsArray = [];
+					
+					currentArray.push("line");
+					currentArray.push(pathArray[k][l+1]); //start point
+																			
+					//pathArray[k] = [M x1,y1 V y2]...
+					startCoords = pathArray[k][l+1]; //startCoords = [x1,y1]
+					startCoordsArray = startCoords.split(","); //startCoordsArray = [x1 y1]
+					//console.log("startCoordsArray is " + startCoordsArray);
+					if (pathArray[k][l+2] == "V") {
+						//console.log("found V line");
+						endCoordsArray.push(startCoordsArray[0]); //endCoordsArray = [x1]
+						endCoordsArray.push(pathArray[k][l+3]); //endCoordsArray = [x1 y2]
+						endCoords = endCoordsArray.join(","); //endCoordsArray = "x1,y2"
+						currentArray.push(endCoords);
+						startCoordsArray = [];
+					}
+					else if (pathArray[k][l+2] == "H") {
+						//console.log("found H line");
+						endCoordsArray.push(pathArray[k][l+3]); //endCoordsArray = [x2]
+						endCoordsArray.push(startCoordsArray[1]); //endCoordsArray = [x2 y1]
+						endCoords = endCoordsArray.join(","); //endCoordsArray = "x2,y1"
+						currentArray.push(endCoords);
+						startCoordsArray = [];
+					}
+					
+					else {
+						console.log("not a V or H?");
+					}
+					
+					newArray.push(currentArray);
+					commandArray.push("M");
+					
+					a++;
+					l = l+3;
+				}
+				
+				//---end add in V and H
+				
+								
+				else if (pathArray[k][l] == "M" && pathArray[k][l+2] !== "C") {
+					//this is the beginning of a line command
+					console.log("found non ortho line");
+					currentArray.push("line");
+					currentArray.push(pathArray[k][l+1]); //line start point
+					currentArray.push(pathArray[k][l+2]); //line end point
+					
+					newArray.push(currentArray);
+					
+					commandArray.push("M");
+					
+					a++;
+					l = l+2;
+				}
+							
+				else {
+					//is this isn't either of those (simplified version for SK8CAD), must be continuation of last command
+					
+					if (commandArray[commandArray.length-1] == "C") {
+						currentArray.push("bezier");
+						currentArray.push(newArray[a-1][4]); //last point of prev bezier is now start point
+						currentArray.push(pathArray[k][l]); //first bezier defs
+						currentArray.push(pathArray[k][l+1]); //second bezier defs
+						currentArray.push(pathArray[k][l+2]); //bezier end point
+						
+						newArray.push(currentArray);
+						
+						a++;
+						l = l+2;
+					}
+					
+					else {
+						console.log("Not developed for these paths yet - SVG must be exported with absolute lines and cubic beziers, only")
+					}
+					
+				}
+			}
+	
+			}
+			//console.log("---------NEW ARRAY IS:--------");
+			
+			/*for (var m = 0; m < newArray.length; m++){
+				console.log(newArray[m]);
+			}
+			*/
+			var oldArr = newArray;
+			var cleanArr = [];
+			
+			var commandTxt;
+			var pointToFind;
+			
+			var indexToMove;
+			
+			var foundPointLog = [];
+
+			/*for (var m = 0; m < oldArr.length; m++){
+				console.log(oldArr[m]);
+			}*/
+			
+			cleanArr.push(oldArr[0]);
+			//console.log("****cleanArr[0] = ***********");
+			//console.log(cleanArr[0]);
+			//console.log(oldArr.length);
+						
+			for (i = 0; i < oldArr.length; i++) {
+					
+					commandTxt = cleanArr[i][0];	//look at the first point in our original array and take that as starting point
+					//there are three possibilities - line, bezier, or 0.
+					//console.log("command text is " + commandTxt);
+
+					if (commandTxt == "line") {	
+						pointToFind = cleanArr[i][2];	//we need to find the coordinate shared by another command to make a continuous path.
+	
+						if (foundPointLog.includes(pointToFind)) { //have we already made a connection via this point?  If so, use the other point
+						
+							pointToFind = cleanArr[i][1];
+							
+							if (foundPointLog.includes(pointToFind)) {
+								console.log("Overlapping points!");
+							}
+						}
+						foundPointLog.push(pointToFind);
+								
+						indexToMove = searchForPoint(pointToFind,oldArr,cleanArr,i);
+						
+						cleanArr.push(oldArr[indexToMove]);
+						
+						oldArr[indexToMove] = 0;
+						
+					}
+					else if (commandTxt == "bezier") {
+						pointToFind = cleanArr[i][4];
+				
+						if (foundPointLog.includes(pointToFind)) {
+							
+							pointToFind = cleanArr[i][1];
+							
+							if (foundPointLog.includes(pointToFind)) {
+								console.log("Overlapping point!");
+							}
+						}
+						
+						foundPointLog.push(pointToFind);
+																		
+						indexToMove = searchForPoint(pointToFind,oldArr,cleanArr,i);
+						
+						cleanArr.push(oldArr[indexToMove]);
+
+						oldArr[indexToMove] = 0;
+						
+					}
+													
+					else {
+						console.log("empty index");
+					}
+										
+				/*console.log("Current index of oldArr is " + i);
+				console.log("Value of oldArr[i] is " + oldArr[i]);
+				console.log(" ----  ---- ---- ");*/
+					
+				//console.log("cleaned Array: ");
+				/*for (var z = 0; z < cleanArr.length; z++){
+					console.log(cleanArr[z]);
+				}*/
+				//console.log("original array: ");
+				/*for (var z = 0; z < oldArr.length; z++){
+					console.log(oldArr[z]);
+				}*/
+				
+				}
+			
+			cleanArr.pop();
+
+			
+			//--- organize the way paths are drawn so that the points of each command (e.g. line, 
+			//bezier) are coincident (i.e., if line 1 moves from (0,0) to (4,4) and line 2 moves 
+			//from (2,2) to (4,4), change line 2 to move from (4,4) to (2,2) so OpenJSCAD can draw 
+			//paths  -----
+			
+			var firstCommand, secondCommand, thisCommand;
+			var ii, jj
+			var swapVal1, swapVal2;
+			
+			var myNewArray = [];		
+				
+			for (ii = 0; ii < (cleanArr.length - 1); ii = ii+2) {
+				
+				var firstArray = [];
+				var secondArray = [];
+				
+				jj = ii+1;
+				firstCommand = cleanArr[ii][0];
+				secondCommand = cleanArr[jj][0];
+				
+				for (var cmd = 0; cmd < 2; cmd++) {	
+				
+					if (cmd==0) {
+						for (var iii = 1; iii < cleanArr[ii].length; iii++) {
+							firstArray.push(cleanArr[ii][iii]);
+						}
+					}
+					
+					else {
+						for (var jjj = 1; jjj < cleanArr[jj].length; jjj++) {
+							secondArray.push(cleanArr[jj][jjj]);
+						}
+					}
+				
+				}
+				
+				var commonVal = "";
+				
+				for (var idx = 0; idx < firstArray.length; idx++) {
+					if (secondArray.includes(firstArray[idx])) {
+						commonVal = firstArray[idx];
+					}
+				}
+
+				//is the common value the LAST element in the first array?  If so, do nothing.  Otherwise, reverse order of cleanArr.
+				if (firstArray[firstArray.length-1] !== commonVal) {
+					for (var kk = 1; kk < ((cleanArr[ii].length)/2); kk++) {
+						swapVal1 = cleanArr[ii][kk];
+						swapVal2 = cleanArr[ii][(cleanArr[ii].length-kk)];
+						cleanArr[ii][kk] = swapVal2;
+						cleanArr[ii][(cleanArr[ii].length-kk)] = swapVal1;
+					}
+				}
+				
+				//is the common value the FIRST element in the second array?  If so, do nothing.  Otherwise, reverse order of cleanArr.
+				if (secondArray[0] !== commonVal) {
+					for (var kk = 1; kk < ((cleanArr[jj].length)/2); kk++) {
+						swapVal1 = cleanArr[jj][kk];
+						swapVal2 = cleanArr[jj][(cleanArr[jj].length-kk)];
+						cleanArr[jj][kk] = swapVal2;
+						cleanArr[jj][(cleanArr[jj].length-kk)] = swapVal1;
+					}
+				}
+			}
+
+			/*console.log("---------------organized array is----------");
+			for (var z = 0; z < cleanArr.length; z++){
+					console.log(cleanArr[z]);
+			}*/
+						
+			//Get each coordinate and convert units
+			var currentCoordinates = [];
+			var lastCoordinates = [];
+		
+			var firstCoords = true;
+			
+			var startPath = true;
+			
+			for (var k = 0; k < cleanArr.length; k++) {
+				for (var l = 1; l < cleanArr[k].length; l++) {
+										
+					currentCoordinates = (cleanArr[k][l]).split(",");
+					//convert the units of the current coordinates (px by inkscape default @ 90dpi) to inches for SK8CAD:
+					//90px per inch
+					currentCoordinates[0] = currentCoordinates[0]/90;
+					currentCoordinates[1] = currentCoordinates[1]/90;
+		
+					if (firstCoords == true) {
+						startPath = true;
+					}
+					
+					else {
+						startPath = false;
+					}	
+					
+					//set the first point placed as the origin
+					while(firstCoords == true) {
+						x0 = currentCoordinates[0];
+						y0 = currentCoordinates[1];
+						firstCoords = false;
+						}
+					
+					if (startPath == true) {
+						switch (cleanArr[k][0]) {
+							
+								case "line":
+									txt = "var path = new CSG.Path2D([" + (currentCoordinates[0]-x0) + "," + (currentCoordinates[1]-y0) + "]);<br>";
+									break;
+									
+								case "bezier":
+									txt = "var path = new CSG.Path2D([" + (currentCoordinates[0]-x0) + "," + (currentCoordinates[1]-y0) + "]);<br>";
+									break;
+									
+								default:
+									console.log("last command wasn't line or bezier");
+									break;
+								
+								}
+					}
+					
+					else {
+						l++;
+						
+						if (cleanArr[k][l]) {
+						currentCoordinates = (cleanArr[k][l]).split(",");
+						currentCoordinates[0] = currentCoordinates[0]/90;
+						currentCoordinates[1] = currentCoordinates[1]/90;
+						switch (cleanArr[k][0]) {
+							
+								case "line":
+									txt += "path = path.appendPoint([" + (currentCoordinates[0]-x0) + "," + (currentCoordinates[1]-y0) + "]);<br>";
+									break;
+									
+								case "bezier":
+									
+									txt += "path = path.appendBezier([<br>[" + (currentCoordinates[0]-x0) + "," + (currentCoordinates[1]-y0) + "]";
+									
+									while (l < 4) {
+										l++;
+										currentCoordinates = (cleanArr[k][l]).split(",");
+										currentCoordinates[0] = currentCoordinates[0]/90;
+										currentCoordinates[1] = currentCoordinates[1]/90;
+										txt += ",<br>[" + (currentCoordinates[0]-x0) + "," + (currentCoordinates[1]-y0) + "]"
+									}
+									
+									txt += "]);<br>";
+									
+									break;
+									
+								default:
+									console.log("last command wasn't line or bezier");
+									break;
+								
+								}
+								}
+							}
+					}
+					
+					
+			}
+				
+
+			txt += "path = path.close();";
+			document.getElementById("demo").innerHTML = txt; 
+		
+			}
+
+		//--- this function is used to find the location of the path/instruction coincident to the
+		// previous one - this is used to order the array of paths to be drawn consecutively.
+		function searchForPoint(point,prevArr,newArr,index) {
+			var pointNotFound = true;
+			var indexValue;
+			var isHere;
+			for (var m = 0; m < prevArr.length; m++) {
+				for (var n = 0; n < prevArr[m].length; n++) {
+					indexValue = prevArr[m][n];
+					if (indexValue == point) {
+						pointNotFound = false;
+						isHere = m;
+					}
+				}				
+			}
+						
+			/*console.log("Results of search for point - is point missing?");
+			console.log(pointNotFound);*/
+			
+			return isHere;
+			
+		}
+		
+		//------------
+		//this function returns the paths that make up the drawing from the SVG file, based on Inkscape 0.92 and the XML DOM (see https://www.w3schools.com/xml/dom_nodes_info.asp)
+		function findLowestg(root,pathArray) {	
+			var i = 0;
+			var children = root.childNodes;
+			var childIndexVal; 
+			for (i = 0; i <children.length; i++) {
+				childIndexVal = children[i];
+				
+				if (childIndexVal.nodeName == "g") {
+					findLowestg(childIndexVal,pathArray);
+				}
+				else if (childIndexVal.nodeName == "path") {
+					pathArray.push(childIndexVal.getAttribute("d"));
+				}
+				else {
+					console.log("no info here");
+				}
+			}
+			return pathArray;
+			
+		}
+		
+	};
+	
+</script>
+
+</body>
+</html>
